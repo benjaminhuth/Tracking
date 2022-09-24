@@ -57,8 +57,8 @@ add_subdirectory(acts)           # now build acts
 
 find_package(Eigen3 CONFIG REQUIRED)
 
-setup_dd4hep_target()
 
+setup_dd4hep_target()
 setup_geant4_target()
 
 
@@ -78,7 +78,8 @@ setup_library(module Tracking
                            Geant4::Interface
                            DD4hep::DDCore
               sources ${SRC_FILES})
-
+              
+target_compile_options(Tracking PUBLIC -Wno-unused-local-typedefs -Wno-unused-parameter -Wno-unused-variable)
 
 include_directories(${PROJECT_SOURCE_DIR}/include/Tracking/Reco/)
 

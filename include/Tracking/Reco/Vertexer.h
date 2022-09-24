@@ -89,7 +89,7 @@ class Vertexer : public framework::Producer {
 
   TH1F* h_delta_d0;  
   TH1F* h_delta_z0; 
-  TH1F* h_delta_p;;
+  TH1F* h_delta_p;
   TH1F* h_delta_phi;
   TH1F* h_delta_theta;
   

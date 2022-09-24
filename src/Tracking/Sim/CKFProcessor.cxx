@@ -13,14 +13,17 @@
 #include <iostream>
 #include <algorithm> //std::vector reverse
 
+using namespace Acts::UnitLiterals;
+
 namespace tracking {
 namespace sim {
     
 CKFProcessor::CKFProcessor(const std::string &name,
                                              framework::Process &process)
     : framework::Producer(name, process) {
-
   normal_ = std::make_shared<std::normal_distribution<float>>(0., 1.);
+  
+  
 }
 
 CKFProcessor::~CKFProcessor() {}
@@ -41,6 +44,10 @@ void CKFProcessor::onProcessStart() {
   //Build the tracking geometry
   ldmx_tg = std::make_shared<tracking::reco::LdmxTrackingGeometry>(detector_, &gctx_);
   const auto tGeometry = ldmx_tg->getTG();
+  
+  // tGeometry->visitSurfaces([&](const auto surface) {
+  //   std::cout << surface->geometryId() << " " << std::tie(*surface, gctx_) << "\n";
+  // });
   
   // Seed the generator
   generator_.seed(1);
@@ -95,7 +102,8 @@ void CKFProcessor::onProcessStart() {
   const Acts::Navigator navigator(navCfg);
 
   // Setup the propagators
-  propagator_ = const_b_field_ ? std::make_unique<CkfPropagator>(const_stepper, navigator) : std::make_unique<CkfPropagator>(stepper, navigator);
+  propagator_ = const_b_field_ ? std::make_unique<CkfPropagator>(const_stepper, navigator) : 
+                                 std::make_unique<CkfPropagator>(stepper, navigator);
   auto gsf_propagator = GsfPropagator(multi_stepper, navigator);
 
   // Setup the fitters
@@ -195,20 +203,32 @@ void CKFProcessor::onProcessStart() {
 }
 
 void CKFProcessor::produce(framework::Event &event) {
-
-
   //TODO use global variable instead and call clear;
   std::vector<ldmx::Track> tracks;
+  Acts::Logging::Level kalmanGsfLogLevel = Acts::Logging::Level::ERROR;
   
   auto start = std::chrono::high_resolution_clock::now();
   
   nevents_++;
-  if (nevents_ % 1000 == 0)
-    std::cout<<"events processed:"<<nevents_<<std::endl;
   
   if (debug_) {
     std::cout<<"PF ::DEBUG:: "<<__PRETTY_FUNCTION__<<std::endl;
     std::cout<<"Processing event "<<&event<<std::endl;
+  }
+  
+  if (pick_event_ != -1) {
+    kalmanGsfLogLevel = Acts::Logging::Level::VERBOSE;
+    if (nevents_ != pick_event_) {
+      if (debug_) {
+        std::cout << "skip event " << nevents_ << " because we want to pick event " 
+                  << pick_event_ << "\n";
+      }
+      return;
+    }
+  }
+  
+  if (nevents_ % 1000 == 0) {
+    std::cout<<"events processed:"<<nevents_<<std::endl;
   }
 
   //1) Setup the actions and the abort list. For debugging add the Stepping Logger
@@ -643,124 +663,19 @@ void CKFProcessor::produce(framework::Event &event) {
     
     //Refit the track with the KalmanFitter using backward propagation
     if (kfRefit_) {
-      std::cout<<"Preparing theKF refit"<<std::endl;
-      std::vector<std::reference_wrapper<const ActsExamples::IndexSourceLink>> fit_trackSourceLinks;
-      mj.visitBackwards(trackTip, [&](const auto& state) {
-        const auto& sourceLink =
-          static_cast<const ActsExamples::IndexSourceLink&>(state.uncalibrated());
-        auto typeFlags = state.typeFlags();
-        if (typeFlags.test(Acts::TrackStateFlag::MeasurementFlag)) {
-          fit_trackSourceLinks.push_back(std::cref(sourceLink));
-        }
-      });
-
-      std::cout<<"Getting the logger and adding the extensions."<<std::endl;
-      const auto kfLogger = Acts::getDefaultLogger("KalmanFitter", Acts::Logging::INFO);
-      Acts::KalmanFitterExtensions kfitter_extensions;
-      kfitter_extensions.calibrator.connect<&LdmxMeasurementCalibrator::calibrate_1d>(&calibrator);
-      kfitter_extensions.updater.connect<&Acts::GainMatrixUpdater::operator()>(&kfUpdater);
-      kfitter_extensions.smoother.connect<&Acts::GainMatrixSmoother::operator()>(&kfSmoother);
-
-      //rFiltering is true, so it should run in reversed direction.
-      Acts::KalmanFitterOptions kfitter_options =
-          Acts::KalmanFitterOptions(gctx_,bctx_,cctx_,
-                                    kfitter_extensions,Acts::LoggerWrapper{*kfLogger},
-                                    propagator_options,&(*extr_surface),
-                                    true, true, true); //mScattering, exoLoss, rFiltering
-      
-
-
-      std::cout<<"rFiltering =" << std::boolalpha << kfitter_options.reversedFiltering <<std::endl;
-      
-      // create the Kalman Fitter
-      if (debug_) {
-        std::cout<<"Make the KalmanFilter fitter object"<<std::endl;
-        std::cout<<"Refit"<<std::endl;
-      }
-
-      std::cout<<"Refit tracks with KF"<<std::endl;
-      std::cout<<"Starting from "<<std::endl;
-      std::cout<<ckf_result.fittedParameters.begin()->second.position(gctx_)<<std::endl;
-      std::cout<<"With momenutm"<<std::endl;
-      std::cout<<ckf_result.fittedParameters.begin()->second.momentum()<<std::endl;
-      std::cout<<"And field" <<std::endl;
-      
-      //Acts::MagneticFieldProvider::Cache cache = sp_interpolated_bField_->makeCache(bctx_);
-      //std::cout<<" BField::\n"<<sp_interpolated_bField_->getField(ckf_result.fittedParameters.begin()->second.position(gctx_),cache).value() / Acts::UnitConstants::T <<std::endl; 
-      
-      auto kf_refit_result = kf_->fit(fit_trackSourceLinks.begin(),fit_trackSourceLinks.end(),
-                                    ckf_result.fittedParameters.begin()->second,kfitter_options);
-     
-      if (!kf_refit_result.ok()) {
-        std::cout<<"KF Refit failed"<<std::endl;
-      } else {
-        auto kf_refit_value = kf_refit_result.value();
-        auto kf_params = kf_refit_value.fittedParameters;
-        h_p_refit_     ->Fill((*kf_params).absoluteMomentum());
-        h_d0_refit_    ->Fill((*kf_params).get<Acts::BoundIndices::eBoundLoc0>());
-        h_z0_refit_    ->Fill((*kf_params).get<Acts::BoundIndices::eBoundLoc1>());
-        h_phi_refit_   ->Fill((*kf_params).get<Acts::BoundIndices::eBoundPhi>());
-        h_theta_refit_ ->Fill((*kf_params).get<Acts::BoundIndices::eBoundTheta>());
-      }
-      
-    }//Run the refit
-
+      kalmanRefit(mj, trackTip, calibrator, propagator_options,
+                  extr_surface, ckf_result.fittedParameters.begin()->second, kalmanGsfLogLevel);
+    }
 
     //Refit track using the GSF
     if (gsfRefit_) {
       try {
-        const auto gsfLogger = Acts::getDefaultLogger("GSF",Acts::Logging::INFO);
-        std::vector<std::reference_wrapper<const ActsExamples::IndexSourceLink>> fit_trackSourceLinks;
-        mj.visitBackwards(trackTip, [&](const auto& state) {
-          auto typeFlags = state.typeFlags();
-          if (typeFlags.test(Acts::TrackStateFlag::MeasurementFlag)) {
-            const auto& sourceLink =
-                static_cast<const ActsExamples::IndexSourceLink&>(state.uncalibrated());
-            fit_trackSourceLinks.push_back(std::cref(sourceLink));
-          }
-        });
-
-        
-        //Same extensions of the KF
-        Acts::GsfExtensions gsf_extensions;
-        gsf_extensions.calibrator.connect<&LdmxMeasurementCalibrator::calibrate_1d>(&calibrator);
-        gsf_extensions.updater.connect<&Acts::GainMatrixUpdater::operator()>(&kfUpdater);
-
-        Acts::GsfOptions gsf_options{gctx_,
-          bctx_,
-          cctx_,
-          gsf_extensions,
-          Acts::LoggerWrapper{*gsfLogger},
-          propagator_options,
-          &(*extr_surface)};
-
-        gsf_options.abortOnError = false;
-        gsf_options.maxComponents = 4;
-        gsf_options.disableAllMaterialHandling = false;
-        
-        auto gsf_refit_result = gsf_->fit(fit_trackSourceLinks.begin(),
-                                          fit_trackSourceLinks.end(),
-                                          ckf_result.fittedParameters.begin()->second,
-                                          gsf_options);
-        
-        
-        if (!gsf_refit_result.ok()) {
-          std::cout<<"GSF Refit failed"<<std::endl;
-        }
-        else {
-          auto gsf_refit_value = gsf_refit_result.value();
-          auto gsf_params = gsf_refit_value.fittedParameters;
-          h_p_gsf_refit_     ->Fill((*gsf_params).absoluteMomentum());
-          h_d0_gsf_refit_    ->Fill((*gsf_params).get<Acts::BoundIndices::eBoundLoc0>());
-          h_z0_gsf_refit_    ->Fill((*gsf_params).get<Acts::BoundIndices::eBoundLoc1>());
-          h_phi_gsf_refit_   ->Fill((*gsf_params).get<Acts::BoundIndices::eBoundPhi>());
-          h_theta_gsf_refit_ ->Fill((*gsf_params).get<Acts::BoundIndices::eBoundTheta>());
-        }
-        
+        gsfRefit(mj, trackTip, calibrator, propagator_options,
+                 extr_surface, ckf_result.fittedParameters.begin()->second, kalmanGsfLogLevel);
       } catch (...) {
         std::cout<<"ERROR:: GSF Refit failed"<<std::endl;
       }
-      } // do refit GSF
+    }
   } // loop on CKF Results
 
 
@@ -866,6 +781,7 @@ void CKFProcessor::configure(framework::config::Parameters &parameters) {
   propagator_maxSteps_  = parameters.getParameter<int>("propagator_maxSteps", 10000);
   perigee_location_     = parameters.getParameter<std::vector<double> >("perigee_location", {0.,0.,0.});
   debug_                = parameters.getParameter<bool>("debug",false);
+  pick_event_           = parameters.getParameter<int>("pick_event", -1);
   hit_collection_       = parameters.getParameter<std::string>("hit_collection","TaggerSimHits");
 
   removeStereo_         = parameters.getParameter<bool>("removeStereo",false);
@@ -894,7 +810,6 @@ void CKFProcessor::configure(framework::config::Parameters &parameters) {
   
   
   //Hit smearing
-
   do_smearing_ = parameters.getParameter<bool>("do_smearing",false);
   sigma_u_ = parameters.getParameter<double>("sigma_u", 0.01);
   sigma_v_ = parameters.getParameter<double>("sigma_v", 0.);
@@ -903,8 +818,7 @@ void CKFProcessor::configure(framework::config::Parameters &parameters) {
 
   kfRefit_  = parameters.getParameter<bool>("kfRefit", false);
   gsfRefit_ = parameters.getParameter<bool>("gsfRefit" , false);
-
-  
+  gsfComponents_ = static_cast<std::size_t>(parameters.getParameter<int>("gsf_components", 4));
 }
 
 void CKFProcessor::testField(const std::shared_ptr<Acts::MagneticFieldProvider> bfield,
@@ -995,8 +909,8 @@ void CKFProcessor::writeEvent(framework::Event &event,
   /// And recorded material track
   /// - this is start:  position, start momentum
   ///   and the Recorded material
-  using RecordedMaterialTrack =
-      std::pair<std::pair<Acts::Vector3, Acts::Vector3>, RecordedMaterial>;
+  // using RecordedMaterialTrack =
+  //     std::pair<std::pair<Acts::Vector3, Acts::Vector3>, RecordedMaterial>;
   
   /// Finally the output of the propagation test
   using PropagationOutput =

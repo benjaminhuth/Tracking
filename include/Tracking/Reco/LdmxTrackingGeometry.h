@@ -11,8 +11,11 @@
 #include "TGeoMatrix.h"
 
 //--- ACTS ---//
-//dd4hep
+#if __has_include("ActsDD4hep/ActsExtension.hpp")
 #include "ActsDD4hep/ActsExtension.hpp"
+#else
+#include "Acts/Plugins/DD4hep/ActsExtension.hpp"
+#endif
 
 //geometry
 #include "Acts/Plugins/TGeo/TGeoPrimitivesHelper.hpp"

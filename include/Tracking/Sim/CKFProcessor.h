@@ -160,9 +160,26 @@ class CKFProcessor final : public framework::Producer {
   //Test the measurement calibrator (TODO::move it somewhere else)
   void testMeasurmentCalibrator(const LdmxMeasurementCalibrator& calibrator,
                                 const std::unordered_map<Acts::GeometryIdentifier, std::vector< ActsExamples::IndexSourceLink> > & map) const;
+                 
+  // Run the gsf refit of a track
+  void gsfRefit(const Acts::MultiTrajectory &mj,
+                std::size_t trackTip,
+                const LdmxMeasurementCalibrator &calibrator,
+                const Acts::PropagatorOptions<ActionList, AbortList> &prop_options,
+                const Acts::Surface *target_surface,
+                const Acts::BoundTrackParameters &start_parameters,
+                Acts::Logging::Level log_level = Acts::Logging::INFO);
+  
+  // Run the kalman refit of a track
+  void kalmanRefit(const Acts::MultiTrajectory &mj,
+                   std::size_t trackTip,
+                   const LdmxMeasurementCalibrator &calibrator,
+                   const Acts::PropagatorOptions<ActionList, AbortList> &prop_options,
+                   const Acts::Surface *target_surface,
+                   const Acts::BoundTrackParameters &start_parameters,
+                   Acts::Logging::Level log_level = Acts::Logging::INFO);
 
   //Test the magnetic field
-
   void testField(const std::shared_ptr<Acts::MagneticFieldProvider> bField,
                  const Acts::Vector3& eval_pos) const;
 
@@ -188,6 +205,7 @@ class CKFProcessor final : public framework::Producer {
   int dumpobj_ {0};
 
   bool debug_{false};
+  int pick_event_{-1};
   int nevents_{0};
 
   //Processing time counter
@@ -199,6 +217,7 @@ class CKFProcessor final : public framework::Producer {
   //refitting of tracks
   bool kfRefit_{false};
   bool gsfRefit_{false};
+  std::size_t gsfComponents_{4};
   
   //--- Smearing ---//
 
