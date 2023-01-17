@@ -2,6 +2,9 @@
 #define TRACKING_SIM_CKFPROCESSOR_H_
 
 //--- Framework ---//
+#include "Acts/Propagator/MultiEigenStepperLoop.hpp"
+#include "Acts/TrackFitting/GaussianSumFitter.hpp"
+#include "Acts/TrackFitting/detail/BetheHeitlerApprox.hpp"
 #include "Framework/Configure/Parameters.h"
 #include "Framework/EventProcessor.h"
 #include "Framework/RandomNumberSeedService.h"
@@ -77,10 +80,6 @@
 #include "Acts/TrackFitting/KalmanFitter.hpp"
 
 
-//GSF
-#include "Acts/TrackFitting/GaussianSumFitter.hpp"
-#include "Acts/Propagator/MultiEigenStepperLoop.hpp"
-
 //--- Tracking ---//
 #include "Tracking/Sim/TrackingUtils.h"
 #include "Tracking/Sim/IndexSourceLink.h"
@@ -94,6 +93,17 @@
 using ActionList = Acts::ActionList<Acts::detail::SteppingLogger, Acts::MaterialInteractor>;
 using AbortList = Acts::AbortList<Acts::EndOfWorldReached>;
 
+namespace Acts {
+  template<typename A, typename B, typename C>
+  class MultiEigenStepperLoop;
+
+  struct WeightedComponentReducerLoop;
+
+  template<typename A, typename B>
+  struct GaussianSumFitter;
+}
+
+
 using CkfPropagator = Acts::Propagator<Acts::EigenStepper<>, Acts::Navigator>;
 using GsfPropagator = Acts::Propagator<
                         Acts::MultiEigenStepperLoop<
@@ -102,6 +112,10 @@ using GsfPropagator = Acts::Propagator<
                           Acts::WeightedComponentReducerLoop,
                           Acts::detail::VoidAuctioneer>,
                         Acts::Navigator>;
+
+
+// using BetheHeitlerApprox = Acts::detail::BetheHeitlerApprox<6, 5>;
+using BetheHeitlerApprox = Acts::detail::BetheHeitlerApproxSingleCmp;
 
 //?!
 //using PropagatorOptions =
@@ -215,9 +229,10 @@ class CKFProcessor final : public framework::Producer {
   std::map<std::string, double> profiling_map_;
   
   //refitting of tracks
-  bool kfRefit_{false};
-  bool gsfRefit_{false};
-  std::size_t gsfComponents_{4};
+  bool kf_refit_{false};
+  bool gsf_refit_{false};
+  std::size_t gsf_components_{4};
+  bool gsf_smoothing_{true};
   
   //--- Smearing ---//
 
@@ -281,7 +296,7 @@ class CKFProcessor final : public framework::Producer {
   std::unique_ptr<const Acts::KalmanFitter<CkfPropagator>> kf_;
 
   //The GSF Fitter
-  std::unique_ptr<const Acts::GaussianSumFitter<GsfPropagator>> gsf_;
+  std::unique_ptr<const Acts::GaussianSumFitter<GsfPropagator, BetheHeitlerApprox>> gsf_;
   
   //The propagator steps writer
   std::unique_ptr<PropagatorStepWriter> writer_;
@@ -347,6 +362,10 @@ class CKFProcessor final : public framework::Producer {
 
   std::unique_ptr<TH2F> h_tgt_scoring_x_y_;
   std::unique_ptr<TH1F> h_tgt_scoring_z_;
+
+  std::unique_ptr<TH1F> h_p_kf_refit_ratio_;
+  std::unique_ptr<TH1F> h_p_gsf_refit_ratio_;
+
 
   /// do smearing
   bool do_smearing_{false};

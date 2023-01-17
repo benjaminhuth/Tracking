@@ -38,8 +38,9 @@ void CKFProcessor::gsfRefit(const Acts::MultiTrajectory &mj,
     target_surface};
 
   gsf_options.abortOnError = false;
-  gsf_options.maxComponents = gsfComponents_;
+  gsf_options.maxComponents = gsf_components_;
   gsf_options.disableAllMaterialHandling = false;
+  // gsf_options.enableSmoothing = gsf_smoothing_;
   
   auto gsf_refit_result = gsf_->fit(fit_trackSourceLinks.begin(),
                                     fit_trackSourceLinks.end(),
@@ -68,6 +69,7 @@ void CKFProcessor::gsfRefit(const Acts::MultiTrajectory &mj,
   h_z0_gsf_refit_    ->Fill(gsf_params->get<Acts::BoundIndices::eBoundLoc1>());
   h_phi_gsf_refit_   ->Fill(gsf_params->get<Acts::BoundIndices::eBoundPhi>());
   h_theta_gsf_refit_ ->Fill(gsf_params->get<Acts::BoundIndices::eBoundTheta>());
+  h_p_gsf_refit_ratio_->Fill(gsf_params->absoluteMomentum() / start_parameters.absoluteMomentum());
 }
 
 }

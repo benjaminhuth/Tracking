@@ -189,7 +189,6 @@ void CKFProcessor::onProcessStart() {
 
   h_p_gsf_refit_res_     = std::make_unique<TH1F>("p_gsf_res", "p_gsf_res", 200,-1,1);
   h_qop_gsf_refit_res_   = std::make_unique<TH1F>("qop_gsf_res", "qop_gsf_res", 200,-5,5);
-  
 
   h_p_truth_      = std::make_unique<TH1F>("p_truth",      "p_truth",600,0,6);
   h_d0_truth_     = std::make_unique<TH1F>("d0_truth",     "d0_truth",100,-20,20);
@@ -200,6 +199,9 @@ void CKFProcessor::onProcessStart() {
 
   h_tgt_scoring_x_y_      = std::make_unique<TH2F>("tgt_scoring_x_y",    "tgt_scoring_x_y",100,-40,40,100,-40,40);
   h_tgt_scoring_z_        = std::make_unique<TH1F>("tgt_scoring_z",      "tgt_scoring_z"  ,100,0,10);
+
+  h_p_kf_refit_ratio_     = std::make_unique<TH1F>("p_kf_ratio", "p_kf_ratio", 400,0.9,1.2);
+  h_p_gsf_refit_ratio_    = std::make_unique<TH1F>("p_gsf_ratio", "p_gsf_ratio", 400,0.9,1.2);
 }
 
 void CKFProcessor::produce(framework::Event &event) {
@@ -662,18 +664,18 @@ void CKFProcessor::produce(framework::Event &event) {
     }
     
     //Refit the track with the KalmanFitter using backward propagation
-    if (kfRefit_) {
+    if (kf_refit_) {
       kalmanRefit(mj, trackTip, calibrator, propagator_options,
                   extr_surface, ckf_result.fittedParameters.begin()->second, kalmanGsfLogLevel);
     }
 
     //Refit track using the GSF
-    if (gsfRefit_) {
+    if (gsf_refit_) {
       try {
         gsfRefit(mj, trackTip, calibrator, propagator_options,
                  extr_surface, ckf_result.fittedParameters.begin()->second, kalmanGsfLogLevel);
-      } catch (...) {
-        std::cout<<"ERROR:: GSF Refit failed"<<std::endl;
+      } catch (const std::exception &e) {
+        std::cout<<"ERROR:: GSF Refit failed ("<< e.what() << ")" << std::endl;
       }
     }
   } // loop on CKF Results
@@ -743,13 +745,15 @@ void CKFProcessor::onProcessEnd() {
   h_phi_gsf_refit_->Write();
   h_theta_gsf_refit_->Write();
   //h_nHits_gsf_refit_->Write();
-
   h_p_truth_->Write();
   h_d0_truth_->Write();
   h_z0_truth_->Write();
   h_phi_truth_->Write();
   h_theta_truth_->Write();
   h_qop_truth_->Write();
+
+  h_p_gsf_refit_ratio_->Write();
+  h_p_kf_refit_ratio_->Write();
   
   outfile_->Close();  
   delete outfile_;
@@ -816,9 +820,10 @@ void CKFProcessor::configure(framework::config::Parameters &parameters) {
     
   std::cout<<__PRETTY_FUNCTION__<<"  HitCollection::"<<hit_collection_<<std::endl;
 
-  kfRefit_  = parameters.getParameter<bool>("kfRefit", false);
-  gsfRefit_ = parameters.getParameter<bool>("gsfRefit" , false);
-  gsfComponents_ = static_cast<std::size_t>(parameters.getParameter<int>("gsf_components", 4));
+  kf_refit_  = parameters.getParameter<bool>("kf_refit", false);
+  gsf_refit_ = parameters.getParameter<bool>("gsf_refit" , false);
+  gsf_components_ = static_cast<std::size_t>(parameters.getParameter<int>("gsf_components", 4));
+  gsf_smoothing_ = parameters.getParameter<bool>("gsf_smoothing", true);
 }
 
 void CKFProcessor::testField(const std::shared_ptr<Acts::MagneticFieldProvider> bfield,
@@ -1117,6 +1122,7 @@ auto CKFProcessor::makeGeoIdSourceLinkMap(const std::vector<ldmx::LdmxSpacePoint
       } catch (const std::exception& e) {
         std::cout<<"WARNING:: hit not on surface.. Skipping."<<std::endl;
         std::cout<<ldmxsp->global_pos_<<std::endl;
+        // std::abort();
         continue;
       }
 

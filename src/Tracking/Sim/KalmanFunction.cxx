@@ -79,6 +79,7 @@ void CKFProcessor::kalmanRefit(const Acts::MultiTrajectory &mj,
   h_z0_refit_    ->Fill((*kf_params).get<Acts::BoundIndices::eBoundLoc1>());
   h_phi_refit_   ->Fill((*kf_params).get<Acts::BoundIndices::eBoundPhi>());
   h_theta_refit_ ->Fill((*kf_params).get<Acts::BoundIndices::eBoundTheta>());
+  h_p_kf_refit_ratio_->Fill(kf_params->absoluteMomentum() / start_parameters.absoluteMomentum());
 }
 
 }
